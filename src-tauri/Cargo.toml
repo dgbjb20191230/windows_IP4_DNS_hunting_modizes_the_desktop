@@ -1,0 +1,59 @@
+[package]
+name = "tauri-vue-20250419"
+version = "0.1.0"
+description = "Windows Network Adapter Configuration Tool"
+authors = ["you"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "tauri_vue_20250419_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+# path = "src/lib.rs"
+
+[build-dependencies]
+tauri-build = { version = "1.5", features = ["codegen"] }
+
+[dependencies]
+# 使用最小化的Tauri特性集
+tauri = { version = "1.5", features = [
+  "custom-protocol",
+  "dialog-message",
+  "dialog-confirm",
+  "window-center",
+  "window-close",
+  "window-maximize",
+  "window-minimize",
+  "window-set-focus",
+  "window-set-title",
+  "window-show",
+  "window-start-dragging",
+  "window-unmaximize",
+  "window-unminimize"
+] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# 使用编译时正则表达式优化
+regex = { version = "1.10.4", features = ["std"], default-features = false }
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = "fat"
+opt-level = "z"
+strip = true
+
+[profile.dev]
+opt-level = 1      # 使用基本优化
+
+[profile.dev.package."*"]
+opt-level = 2      # 使用更高级别的优化编译依赖项
+

@@ -1,0 +1,31 @@
+{
+  "name": "tauri-vue-20250419",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "rebuild": "tauri build --config src-tauri/tauri.conf.json",
+    "clean": "rimraf src-tauri/target",
+    "build:app": "node build.js",
+    "package": "node package.js"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^1.5.0",
+    "vue": "^3.4.21"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^1.5.0",
+    "@vitejs/plugin-vue": "^5.0.4",
+    "rimraf": "^6.0.1",
+    "rollup-plugin-visualizer": "^5.14.0",
+    "terser": "^5.39.0",
+    "typescript": "~5.8.3",
+    "vite": "^6.3.2",
+    "vue-tsc": "^2.0.6"
+  },
+  "packageManager": "yarn@1.22.22"
+}
