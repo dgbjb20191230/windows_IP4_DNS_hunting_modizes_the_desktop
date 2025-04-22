@@ -19,7 +19,7 @@ pub mod commands {
     pub fn get_network_adapters() -> Result<Vec<AdapterInfo>, String> {
         // 使用UTF-8编码输出，并添加更多信息以便更好地显示
         let output = Command::new("powershell")
-            .args(["-Command", "$OutputEncoding = [System.Text.Encoding]::UTF8; [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-NetAdapter | Select-Object @{Name='Name';Expression={$_.Name}}, @{Name='Status';Expression={$_.Status}}, @{Name='DisplayName';Expression={$_.InterfaceDescription}} | ConvertTo-Json -Compress"])
+            .args(["-NoProfile", "-Command", "$OutputEncoding = [System.Text.Encoding]::UTF8; [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-NetAdapter | Select-Object @{Name='Name';Expression={$_.Name}}, @{Name='Status';Expression={$_.Status}}, @{Name='DisplayName';Expression={$_.InterfaceDescription}} | ConvertTo-Json -Compress"])
             .output()
             .map_err(|e| format!("执行powershell命令失败: {}", e))?;
 
@@ -98,7 +98,7 @@ pub mod commands {
         );
 
         let ip_output = Command::new("powershell")
-            .args(["-Command", &get_ip_cmd])
+            .args(["-NoProfile", "-Command", &get_ip_cmd])
             .output()
             .map_err(|e| format!("执行powershell命令失败: {}", e))?;
 
@@ -134,7 +134,7 @@ pub mod commands {
         );
 
         let gateway_output = Command::new("powershell")
-            .args(["-Command", &get_gateway_cmd])
+            .args(["-NoProfile", "-Command", &get_gateway_cmd])
             .output()
             .map_err(|e| format!("执行powershell命令失败: {}", e))?;
 
@@ -151,7 +151,7 @@ pub mod commands {
         );
 
         let dns_output = Command::new("powershell")
-            .args(["-Command", &get_dns_cmd])
+            .args(["-NoProfile", "-Command", &get_dns_cmd])
             .output()
             .map_err(|e| format!("执行powershell命令失败: {}", e))?;
 
@@ -231,14 +231,38 @@ pub mod commands {
             )
         };
 
-        let set_ip = Command::new("powershell")
-            .args(["-Command", &set_ip_cmd])
+        // 首先检查网络适配器是否存在和启用
+        let check_adapter_cmd = format!("Get-NetAdapter -Name '{}' | Select-Object -ExpandProperty Status", cfg.adapter);
+
+        let check_adapter = Command::new("powershell")
+            .args(["-NoProfile", "-Command", &check_adapter_cmd])
             .output()
-            .map_err(|e| format!("执行powershell命令失败: {}", e))?;
+            .map_err(|e| format!("检查网络适配器失败: {}", e))?;
+
+        if !check_adapter.status.success() {
+            return Err(format!("找不到网络适配器 '{}'", cfg.adapter));
+        }
+
+        let adapter_status = String::from_utf8_lossy(&check_adapter.stdout).trim().to_string();
+        if adapter_status != "Up" && adapter_status != "已连接" && adapter_status != "Connected" {
+            return Err(format!("网络适配器 '{}' 当前状态为 '{}'，需要先启用它", cfg.adapter, adapter_status));
+        }
+
+        // 直接使用netsh命令而不是通过PowerShell
+        let set_ip = Command::new("netsh")
+            .args([
+                "interface", "ip", "set", "address",
+                &format!("name=\"{}\"", cfg.adapter), "static", &cfg.ip, &cfg.mask,
+                &if cfg.gateway.trim().is_empty() { String::new() } else { cfg.gateway.clone() }
+            ].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>())
+            .output()
+            .map_err(|e| format!("执行netsh命令失败: {}", e))?;
 
         if !set_ip.status.success() {
             let error = String::from_utf8_lossy(&set_ip.stderr).to_string();
-            return Err(format!("设置IP地址失败: {}\n命令: {}", error, set_ip_cmd));
+            let stdout = String::from_utf8_lossy(&set_ip.stdout).to_string();
+            return Err(format!("设置IP地址失败:\n错误: {}\n输出: {}\n命令: {}",
+                              error, stdout, set_ip_cmd));
         }
 
         // 设置DNS服务器
@@ -249,14 +273,20 @@ pub mod commands {
                 cfg.adapter, cfg.dns1
             );
 
-            let set_dns1 = Command::new("powershell")
-                .args(["-Command", &set_dns1_cmd])
+            // 直接使用netsh命令
+            let set_dns1 = Command::new("netsh")
+                .args([
+                    "interface", "ip", "set", "dns",
+                    &format!("name=\"{}\"", cfg.adapter), "static", &cfg.dns1
+                ])
                 .output()
-                .map_err(|e| format!("执行powershell命令失败: {}", e))?;
+                .map_err(|e| format!("执行netsh命令失败: {}", e))?;
 
             if !set_dns1.status.success() {
                 let error = String::from_utf8_lossy(&set_dns1.stderr).to_string();
-                return Err(format!("设置主DNS服务器失败: {}\n命令: {}", error, set_dns1_cmd));
+                let stdout = String::from_utf8_lossy(&set_dns1.stdout).to_string();
+                return Err(format!("设置主DNS服务器失败:\n错误: {}\n输出: {}\n命令: {}",
+                                  error, stdout, set_dns1_cmd));
             }
 
             // 如果有辅助DNS，则设置
@@ -266,14 +296,20 @@ pub mod commands {
                     cfg.adapter, cfg.dns2
                 );
 
-                let set_dns2 = Command::new("powershell")
-                    .args(["-Command", &set_dns2_cmd])
+                // 直接使用netsh命令
+                let set_dns2 = Command::new("netsh")
+                    .args([
+                        "interface", "ip", "add", "dns",
+                        &format!("name=\"{}\"", cfg.adapter), &cfg.dns2, "index=2"
+                    ])
                     .output()
-                    .map_err(|e| format!("执行powershell命令失败: {}", e))?;
+                    .map_err(|e| format!("执行netsh命令失败: {}", e))?;
 
                 if !set_dns2.status.success() {
                     let error = String::from_utf8_lossy(&set_dns2.stderr).to_string();
-                    return Err(format!("设置辅助DNS服务器失败: {}\n命令: {}", error, set_dns2_cmd));
+                    let stdout = String::from_utf8_lossy(&set_dns2.stdout).to_string();
+                    return Err(format!("设置辅助DNS服务器失败:\n错误: {}\n输出: {}\n命令: {}",
+                                      error, stdout, set_dns2_cmd));
                 }
             }
         }
